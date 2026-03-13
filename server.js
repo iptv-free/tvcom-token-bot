@@ -5,7 +5,7 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // 🎯 DECODO API CONFIG
-const DECODO_API_KEY = process.env.DECODO_API_KEY; // Basic token
+const DECODO_API_KEY = process.env.DECODO_API_KEY;
 const DECODO_API_URL = 'https://scraper-api.deco.do/v2/scrape';
 
 let tokenCache = new Map();
@@ -24,9 +24,9 @@ async function fetchToken(channelId = '999') {
       },
       body: JSON.stringify({
         url: `https://tvcom.uz/channel/${channelId}`,
-        proxy_pool: 'premium', // Residential IP (Cloudflare bypass)
-        javascript_rendering: true, // JS ni ishga tushiradi
-        output: 'raw', // HTML qaytaradi
+        proxy_pool: 'premium',
+        javascript_rendering: true,
+        output: 'raw',
         headless: 'html',
       }),
     });
@@ -68,61 +68,39 @@ async function fetchToken(channelId = '999') {
   }
 }
 
-// ⏰ CRON: Har 30 daqiqada avto-yangilanish
+// ⏰ CRON: Har 30 daqiqada
 cron.schedule('*/30 * * * *', async () => {
-  console.log('⏰ Avtomatik yangilanish boshlandi...');
+  console.log('⏰ Avtomatik yangilanish...');
   try {
     await fetchToken('999');
-    console.log('✅ Token yangilandi!');
+    console.log('✅ Yangilandi!');
   } catch (e) {
     console.error('❌ Xatolik:', e.message);
   }
 });
 
-// 🌐 API ENDPOINTS
+// 🌐 API
 app.get('/', (req, res) => {
-  res.json({ 
-    status: 'online', 
-    service: 'TVCOM Token Bot (Decodo API)',
-    lastUpdate, 
-    cacheSize: tokenCache.size 
-  });
+  res.json({ status: 'online', lastUpdate, cacheSize: tokenCache.size });
 });
 
 app.get('/api/token', async (req, res) => {
   try {
     const cached = tokenCache.get('default');
-    
-    // Cache dan qaytarish (30 daqiqa)
     if (cached && lastUpdate && (Date.now() - lastUpdate.getTime() < 1800000)) {
-      console.log('📦 Cache dan qaytarildi');
       return res.json({ token: cached, fromCache: true, lastUpdate });
     }
     
-    // Yangi token olish
-    console.log('🔄 Yangi token olinmoqda...');
     const token = await fetchToken(req.query.id || '999');
     res.json({ token, fromCache: false, lastUpdate });
     
   } catch (error) {
-    console.error('API Error:', error.message);
     const fallback = tokenCache.get('default');
-    res.status(500).json({ 
-      error: error.message, 
-      fallback: fallback || null,
-      note: fallback ? 'Eski token ishlatilmoqda' : 'Token umuman yo\'q'
-    });
+    res.status(500).json({ error: error.message, fallback });
   }
 });
 
-// Server ishga tushirish
 app.listen(PORT, () => {
   console.log(`🚀 Bot started: port ${PORT}`);
-  console.log(`📡 Decodo API: ${!!DECODO_API_KEY}`);
-  // Birinchi token darhol olinadi
-  fetchToken('999').then(t => {
-    console.log('✅ Birinchi token olindi!');
-  }).catch(e => {
-    console.error('⚠️ Birinchi token xatosi:', e.message);
-  });
+  fetchToken('999').catch(console.error);
 });
