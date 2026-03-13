@@ -1,55 +1,39 @@
 import express from 'express';
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 import cron from 'node-cron';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 🔑 Tokenlarni saqlash (xotirada)
 const tokenCache = new Map();
 let lastUpdate = null;
 
-// 🎯 TOKENNI AVTOMATIK OLISH (Puppeteer bilan)
+// 🎯 TOKENNI OLISH (Yengil Chrome bilan)
 async function fetchToken(channelId = '999') {
   let browser = null;
   
   try {
     console.log(`🔄 Token olinmoqda (kanal ${channelId})...`);
     
-    // Puppeteer bilan haqiqiy brauzerni ochish
     browser = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu'
-      ]
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: chromium.headless,
+      ignoreHTTPSErrors: true,
     });
 
     const page = await browser.newPage();
-    
-    // Haqiqiy brauzerdek ko'rinish
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
-    await page.setViewport({ width: 1920, height: 1080 });
-    
-    // Saytga kirish
     await page.goto(`https://tvcom.uz/channel/${channelId}`, {
       waitUntil: 'networkidle2',
       timeout: 30000
     });
 
-    // Sahifa yuklanishini kutish
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(2000);
 
-    // Tokenni JavaScript orqali olish
     const token = await page.evaluate(() => {
       const html = document.documentElement.innerHTML;
-      
-      // Bir nechta variantni qidirish
       const patterns = [
         /token=([a-f0-9]{32})/,
         /"token"\s*:\s*"([a-f0-9]{32})"/,
@@ -58,11 +42,8 @@ async function fetchToken(channelId = '999') {
       
       for (const pattern of patterns) {
         const match = html.match(pattern);
-        if (match && match[1]) {
-          return match[1];
-        }
+        if (match && match[1]) return match[1];
       }
-      
       return null;
     });
 
@@ -73,9 +54,9 @@ async function fetchToken(channelId = '999') {
       tokenCache.set('default', token);
       lastUpdate = new Date();
       return token;
-    } else {
-      throw new Error('Token topilmadi');
     }
+    
+    throw new Error('Token topilmadi');
 
   } catch (error) {
     console.error('❌ Xatolik:', error.message);
@@ -84,85 +65,38 @@ async function fetchToken(channelId = '999') {
   }
 }
 
-// ⏰ CRON JOB: Har 30 daqiqada avtomatik yangilash
+// ⏰ CRON: Har 30 daqiqada avto-yangilanish
 cron.schedule('*/30 * * * *', async () => {
-  console.log('⏰ Avtomatik token yangilanishi boshlandi...');
+  console.log('⏰ Avtomatik yangilanish...');
   try {
     await fetchToken('999');
-    console.log('✅ Token muvaffaqiyatli yangilandi!');
-  } catch (error) {
-    console.error('❌ Token yangilanishida xatolik:', error.message);
+    console.log('✅ Yangilandi!');
+  } catch (e) {
+    console.error('❌ Xatolik:', e.message);
   }
 });
 
-// 🌐 API ENDPOINTS
-
-// Health check
+// 🌐 API
 app.get('/', (req, res) => {
-  res.json({
-    status: 'online',
-    lastUpdate: lastUpdate,
-    cacheSize: tokenCache.size
-  });
+  res.json({ status: 'online', lastUpdate, cacheSize: tokenCache.size });
 });
 
-// Yangi token olish
 app.get('/api/token', async (req, res) => {
   try {
-    const channelId = req.query.id || '999';
-    
-    // Cache dan tekshirish (5 daqiqa ichida yangilangan bo'lsa)
     const cached = tokenCache.get('default');
-    if (cached && lastUpdate && (Date.now() - lastUpdate.getTime() < 300000)) {
-      console.log('📦 Cache dan token qaytarildi');
-      return res.json({
-        token: cached,
-        fromCache: true,
-        lastUpdate: lastUpdate
-      });
+    if (cached && lastUpdate && (Date.now() - lastUpdate.getTime() < 1800000)) {
+      return res.json({ token: cached, fromCache: true, lastUpdate });
     }
     
-    // Yangi token olish
-    const token = await fetchToken(channelId);
-    res.json({
-      token: token,
-      fromCache: false,
-      lastUpdate: lastUpdate
-    });
+    const token = await fetchToken(req.query.id || '999');
+    res.json({ token, fromCache: false, lastUpdate });
     
   } catch (error) {
-    res.status(500).json({
-      error: error.message,
-      fallback: tokenCache.get('default') || null
-    });
+    res.status(500).json({ error: error.message, fallback: tokenCache.get('default') });
   }
 });
 
-// Barcha kanallar uchun token
-app.get('/api/tokens', async (req, res) => {
-  try {
-    const channels = req.query.channels ? req.query.channels.split(',') : ['999', '1', '15', '17'];
-    const tokens = {};
-    
-    for (const channelId of channels) {
-      try {
-        tokens[channelId] = await fetchToken(channelId);
-        await new Promise(r => setTimeout(r, 1000)); // Rate limiting
-      } catch (e) {
-        tokens[channelId] = null;
-      }
-    }
-    
-    res.json({ tokens, lastUpdate });
-    
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Server ishga tushirish
 app.listen(PORT, () => {
-  console.log(`🚀 Token Bot ishga tushdi: http://localhost:${PORT}`);
-  // Birinchi token darhol olinadi
+  console.log(`🚀 Bot started: port ${PORT}`);
   fetchToken('999').catch(console.error);
 });
