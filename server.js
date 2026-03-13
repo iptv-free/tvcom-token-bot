@@ -48,7 +48,7 @@ async function fetchToken(channelId = '999') {
     });
 
     await browser.close();
-    
+     
     if (token) {
       console.log(`✅ Token topildi: ${token.substring(0, 10)}...`);
       tokenCache.set('default', token);
