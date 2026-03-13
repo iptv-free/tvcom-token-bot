@@ -76,23 +76,18 @@ cron.schedule('*/30 * * * *', async () => {
   }
 });
 
-// 🌐 API
-app.get('/', (req, res) => {
-  res.json({ status: 'online', lastUpdate, cacheSize: tokenCache.size });
-});
-
 app.get('/api/token', async (req, res) => {
   try {
-    const cached = tokenCache.get('default');
-    if (cached && lastUpdate && (Date.now() - lastUpdate.getTime() < 1800000)) {
-      return res.json({ token: cached, fromCache: true, lastUpdate });
-    }
+    // ❌ Cache ni o'tkazib yuboramiz
+    // const cached = tokenCache.get('default');
+    // if (cached...) {...}
     
+    // ✅ Har safar yangi token olamiz
     const token = await fetchToken(req.query.id || '999');
     res.json({ token, fromCache: false, lastUpdate });
     
   } catch (error) {
-    res.status(500).json({ error: error.message, fallback: tokenCache.get('default') });
+    res.status(500).json({ error: error.message });
   }
 });
 
